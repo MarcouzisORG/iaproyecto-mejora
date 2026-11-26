@@ -30,3 +30,21 @@ Con la salida binaria, D tiene **4.008.829 parámetros** frente a los **6.954.88
 Se informará la diferencia **D − B** y su intervalo de confianza del 95 % para F1 y AUC. Un intervalo completamente por encima de cero respaldaría una mejora en esa métrica. Si incluye cero, la diferencia queda inconclusa con esta evaluación. También se registrarán el dispositivo y las versiones usadas para interpretar los resultados.
 
 Los valores de referencia salen de los reportes del modelo B. [Validación](models/modelo_b_densenet121_v1/evaluacion_val/report.json) · [Test](models/modelo_b_densenet121_v1/evaluacion_test/report.json) · [Protocolo del equipo](docs/MEJORAS_FINAL.md#protocolo)
+
+## Entrenamiento en una GTX 1080
+
+Para la GTX 1080 (Pascal) en Windows, usar Python 3.12 y PyTorch 2.14.1 con CUDA 12.6 en un entorno separado. PyTorch 2.14 es la última versión que publica binarios para esta arquitectura. [Compatibilidad de PyTorch con Pascal](https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432)
+
+Desde la raíz del repositorio, creá el entorno, instalá las versiones CUDA y verificá que PyTorch vea la GPU.
+
+```powershell
+$envCuda = Join-Path $env:LOCALAPPDATA 'venvs\iaproyecto-cu126'
+python -m venv $envCuda
+$pythonCuda = Join-Path $envCuda 'Scripts\python.exe'
+& $pythonCuda -m pip install --index-url https://download.pytorch.org/whl/cu126 torch==2.14.1+cu126 torchvision==0.29.1+cu126
+& $pythonCuda -m pip install -e .
+& $pythonCuda -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+& $pythonCuda -m rx_torax.training.train --config configs/modelo_b_efficientnet_b0.json
+```
+
+El reporte de D registra el dispositivo y las versiones de las bibliotecas. Esos datos acompañan la comparación con B porque el entorno de entrenamiento puede influir en los resultados.
