@@ -95,7 +95,7 @@ def audit_archives(archives, wanted, working, baseline_hashes):
     return accepted, dict(rejected)
 
 
-def prepare(base, nih, output):
+def prepare(base, nih, output, expected_replacements=None):
     if output.exists():
         raise ValueError(f'La salida ya existe: {output}')
     metadata_path = nih / 'Data_Entry_2017_v2020.csv'
@@ -168,6 +168,10 @@ def prepare(base, nih, output):
             finally:
                 arrays._mmap.close()
                 del arrays
+        if expected_replacements is not None:
+            actual = [{key: str(value) for key, value in row.items()} for row in changes]
+            if actual != read_rows(expected_replacements):
+                raise ValueError('Los reemplazos no coinciden con el manifiesto publicado de E')
         write_csv(stage / 'train.csv', train_rows)
         write_csv(stage / 'reemplazos.csv', changes)
         config = json.loads((base / 'config.json').read_text(encoding='utf-8'))
@@ -191,9 +195,10 @@ def main():
     parser.add_argument('--base', type=Path, required=True)
     parser.add_argument('--nih', type=Path, required=True)
     parser.add_argument('--salida', type=Path, required=True)
+    parser.add_argument('--verificar-reemplazos', type=Path, help='CSV publicado con los reemplazos de E')
     args = parser.parse_args()
     try:
-        prepare(args.base.resolve(), args.nih.resolve(), args.salida.resolve())
+        prepare(args.base.resolve(), args.nih.resolve(), args.salida.resolve(), args.verificar_reemplazos)
     except (OSError, ValueError, KeyError, tarfile.TarError) as error:
         parser.exit(2, f'ERROR: {error}\n')
 
