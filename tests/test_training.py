@@ -5,12 +5,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
 
 from rx_torax.evaluation.metrics import best_threshold, binary_metrics, roc_auc, trivial_baselines
-from rx_torax.training.train import DEFAULTS, augment, load_config, repeat_positive_indices, train
+from rx_torax.training.train import DEFAULTS, augment, load_config, repeat_positive_indices, train, train_epoch
 
 
 class MetricsTests(unittest.TestCase):
@@ -88,6 +89,22 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual((artifact['train_mean'], artifact['train_std'], artifact['image_size']), (0.2, 0.2, 64))
         self.assertFalse((self.root / 'a.parcial').exists())
 
+    def test_f1_selection_can_save_a_different_epoch_than_auc(self):
+        first = torch.tensor([8., 6., 7., 4., 5., 2., 3., 1.])
+        second = torch.tensor([7., 8., 6., 3., 5., 2., 4., 1.])
+        predictions = iter([first, second, second])
+
+        def validation_logits(*args):
+            return next(predictions)
+
+        with patch('rx_torax.training.train.predict_logits', new=validation_logits):
+            report = train(self.config('a') | {'selection_metric': 'f1'})
+        history = list(csv.DictReader((self.root / 'a' / 'historial.csv').read_text(encoding='utf-8').splitlines()))
+        self.assertGreater(float(history[0]['val_auc']), float(history[1]['val_auc']))
+        self.assertLess(float(history[0]['val_f1']), float(history[1]['val_f1']))
+        self.assertEqual(report['best_epoch'], 2)
+        self.assertAlmostEqual(report['val']['f1'], float(history[1]['val_f1']))
+
     def test_repeat_positives_only_changes_train_samples(self):
         labels = np.array([1, 0, 0, 1, 0])
         indices = np.array([0, 1, 3, 4])
@@ -97,6 +114,74 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual((report['train_images'], report['train_samples_per_epoch']), (16, 32))
         self.assertEqual(report['train_positive_fraction'], 0.75)
         self.assertEqual(report['val_images'], 8)
+
+    def test_other_findings_weight_is_applied_only_to_matching_training_examples(self):
+        labels = np.load(self.data / 'y_train.npy')
+        findings = ['Effusion|Edema', 'Edema', 'Effusion', 'No Finding'] * 4
+        with (self.data / 'train.csv').open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['array_index', 'target', 'target_original'])
+            writer.writerows((index, label, findings[index]) for index, label in enumerate(labels))
+
+        original_loss = torch.nn.functional.binary_cross_entropy_with_logits
+        observed = []
+
+        def inspect_loss(logits, target, *, weight=None, reduction='mean'):
+            observed.append((weight.tolist() if weight is not None else None, reduction))
+            return original_loss(logits, target, weight=weight, reduction=reduction)
+
+        config = self.config('g') | {'batch_size': len(labels), 'epochs': 1, 'other_findings_negative_weight': 1.5}
+        with patch('torch.nn.functional.binary_cross_entropy_with_logits', new=inspect_loss):
+            train(config)
+        order = np.random.default_rng(config['seed']).permutation(len(labels))
+        expected = [1.5 if index % 4 == 1 else 1.0 for index in order]
+        self.assertEqual(observed, [(expected, 'sum'), (None, 'mean')])
+
+    def test_follow_up_sampling_matches_negative_quotas_and_preserves_positives(self):
+        labels = np.load(self.data / 'y_train.npy')
+        follow_up = [0, 0, 0, 0, 4, 0, 4, 0, 4, 0, 4, 4, 12, 4, 12, 12]
+        with (self.data / 'train.csv').open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['array_index', 'target', 'image_path'])
+            writer.writerows((i, label, f'carpeta/{i}.png') for i, label in enumerate(labels))
+        metadata = self.root / 'nih.csv'
+        with metadata.open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['Image Index', 'Follow-up #'])
+            writer.writerows((f'{i}.png', value) for i, value in enumerate(follow_up))
+
+        def inspect_epoch(model, images, labels, indices, *args):
+            self.assertEqual(sorted(indices[labels[indices] == 1]), np.repeat(np.arange(0, 16, 2), 3).tolist())
+            return train_epoch(model, images, labels, indices, *args)
+
+        config = self.config('i') | {'epochs': 1, 'repeat_positives': 3, 'nih_follow_up_metadata': str(metadata)}
+        with patch('rx_torax.training.train.train_epoch', new=inspect_epoch):
+            report = train(config)
+        self.assertEqual(report['train_samples_per_epoch'], 32)
+        self.assertEqual(report['val_images'], 8)
+        self.assertEqual(report['train_follow_up_counts_per_epoch'], {
+            'positives': {'0': 6, '1-9': 12, '10+': 6}, 'negatives': {'0': 2, '1-9': 4, '10+': 2},
+        })
+
+    def test_efficientnet_fine_tunes_classifier_then_last_blocks(self):
+        active_blocks_by_epoch = []
+
+        def inspect_epoch(model, *args):
+            active_blocks = tuple(index for index, block in enumerate(model.features)
+                                  if any(parameter.requires_grad for parameter in block.parameters()))
+            active_blocks_by_epoch.append(active_blocks)
+            frozen_mean = model.features[0][1].running_mean.clone()
+            loss = train_epoch(model, *args)
+            self.assertEqual(tuple(index for index, block in enumerate(model.features) if block.training),
+                             active_blocks)
+            self.assertTrue(torch.equal(model.features[0][1].running_mean, frozen_mean))
+            self.assertTrue(model.classifier.training)
+            return loss
+
+        config = self.config('e') | {'architecture': 'efficientnet_b0', 'fine_tune_last_block': True}
+        with patch('rx_torax.training.train.train_epoch', new=inspect_epoch):
+            train(config)
+        self.assertEqual(active_blocks_by_epoch, [(), (7, 8)])
 
     def test_existing_output_is_refused(self):
         (self.root / 'a').mkdir()

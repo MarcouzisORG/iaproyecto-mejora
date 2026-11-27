@@ -1,0 +1,84 @@
+{
+  "created_at": "2026-11-27T00:13:41.438924+00:00",
+  "config": {
+    "architecture": "efficientnet_b0",
+    "pretrained": true,
+    "epochs": 15,
+    "patience": 4,
+    "batch_size": 32,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "augmentation": true,
+    "repeat_positives": 3,
+    "seed": 42,
+    "device": "cuda",
+    "data": "data/processed/nih_effusion_pa_modelo_b_v1",
+    "output": "models/modelo_d_efficientnet_b0"
+  },
+  "limit": null,
+  "device": "cuda",
+  "versions": {
+    "torch": "2.14.1+cu126",
+    "torchvision": "0.29.1+cu126",
+    "numpy": "2.3.5"
+  },
+  "train_images": 22594,
+  "train_samples_per_epoch": 30810,
+  "train_positive_fraction": 0.4,
+  "val_images": 1813,
+  "best_epoch": 1,
+  "epochs_run": 5,
+  "train_seconds": 955.8162522999992,
+  "val": {
+    "auc": 0.8974454868154158,
+    "threshold": 0.528964638710022,
+    "tp": 554,
+    "fp": 117,
+    "fn": 171,
+    "tn": 971,
+    "accuracy": 0.8411472697186982,
+    "precision": 0.8256333830104322,
+    "recall": 0.7641379310344828,
+    "specificity": 0.8924632352941176,
+    "f1": 0.7936962750716332
+  },
+  "val_threshold_0_5": {
+    "threshold": 0.5,
+    "tp": 558,
+    "fp": 132,
+    "fn": 167,
+    "tn": 956,
+    "accuracy": 0.8350799779371207,
+    "precision": 0.808695652173913,
+    "recall": 0.7696551724137931,
+    "specificity": 0.8786764705882353,
+    "f1": 0.7886925795053004
+  },
+  "val_baselines": {
+    "always_positive": {
+      "threshold": 1.0,
+      "tp": 725,
+      "fp": 1088,
+      "fn": 0,
+      "tn": 0,
+      "accuracy": 0.3998896856039713,
+      "precision": 0.3998896856039713,
+      "recall": 1.0,
+      "specificity": 0.0,
+      "f1": 0.5713159968479118
+    },
+    "always_negative": {
+      "threshold": 1.0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 725,
+      "tn": 1088,
+      "accuracy": 0.6001103143960287,
+      "precision": 0.0,
+      "recall": 0.0,
+      "specificity": 1.0,
+      "f1": 0.0
+    }
+  },
+  "note": "El umbral se eligió con val, así que estas métricas son optimistas. Test no se usó."
+}

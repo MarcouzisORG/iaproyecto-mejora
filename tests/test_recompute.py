@@ -1,4 +1,4 @@
-"""Pruebas de rx-recalcular sobre las predicciones versionadas de los cuatro modelos.
+"""Pruebas de rx-recalcular sobre las predicciones versionadas.
 
 No usan NIH ni GPU: leen el puntaje, la etiqueta y el paciente de cada imagen evaluada y tienen que llegar
 a los mismos números de los report.json y de las tablas del README.
@@ -31,8 +31,8 @@ class RecomputeTests(unittest.TestCase):
     def test_every_versioned_result_is_reproduced(self):
         evaluations = [key for key, r in self.results.items() if r['kind'] == 'evaluación']
         comparisons = [key for key, r in self.results.items() if r['kind'] == 'comparación']
-        self.assertEqual(len(evaluations), 7)
-        self.assertEqual(len(comparisons), 3)
+        self.assertEqual(len(evaluations), 11)
+        self.assertEqual(len(comparisons), 9)
         for key, result in self.results.items():
             with self.subTest(resultado=key):
                 self.assertEqual(result['mismatches'], [])
@@ -51,6 +51,10 @@ class RecomputeTests(unittest.TestCase):
         self.assertEqual(round(evaluation('modelo_b_densenet121_v1', 'val')[0]['f1'], 3), 0.800)
         self.assertEqual(round(evaluation('modelo_control_v2_densenet121', 'test')[0]['f1'], 3), 0.775)
         self.assertEqual(round(evaluation('modelo_c_v2_densenet121', 'test')[0]['f1'], 3), 0.784)
+        for model, scores in [('d', (0.7937, 0.7594)), ('e', (0.8019, 0.7415))]:
+            for split, f1 in zip(('val', 'test'), scores):
+                metrics, _ = evaluation(f'modelo_{model}_efficientnet_b0', split)
+                self.assertEqual(round(metrics['f1'], 4), f1)
         comparison = self.results[('comparacion_test_control_c', 'test')]['recomputed']
         low, high = comparison['intervals_95']['f1_diferencia']
         self.assertLess(low, 0)
@@ -59,7 +63,7 @@ class RecomputeTests(unittest.TestCase):
 
     def test_predictions_publish_score_label_and_patient(self):
         paths = sorted(MODELS.glob('*/evaluacion_*/predicciones_*.csv'))
-        self.assertEqual(len(paths), 7)
+        self.assertEqual(len(paths), 11)
         for path in paths:
             with self.subTest(archivo=str(path.relative_to(ROOT))):
                 rows = read_rows(path)
@@ -70,7 +74,8 @@ class RecomputeTests(unittest.TestCase):
                 self.assertAlmostEqual(sum(r['target'] == '1' for r in rows) / len(rows), 0.4, delta=0.01)
 
     def test_no_patient_is_in_validation_and_test(self):
-        for model in ('modelo_b_densenet121_v1', 'modelo_c_v2_densenet121'):
+        for model in ('modelo_b_densenet121_v1', 'modelo_c_v2_densenet121',
+                      'modelo_d_efficientnet_b0', 'modelo_e_efficientnet_b0'):
             with self.subTest(modelo=model):
                 patients = {split: {r['patient_id'] for r in read_rows(
                     MODELS / model / f'evaluacion_{split}' / f'predicciones_{split}.csv')} for split in ('val', 'test')}

@@ -13,8 +13,8 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "numpy==2.3.5",
     "Pillow==12.3.0",
-    "torch==2.15.0",
-    "torchvision==0.29.2",
+    "torch>=2.14.1,<=2.15.0",
+    "torchvision>=0.29.1,<=0.29.2",
     "matplotlib==3.10.7",
 ]
 

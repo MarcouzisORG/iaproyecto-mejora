@@ -1,0 +1,88 @@
+{
+  "created_at": "2026-11-27T03:32:09.422788+00:00",
+  "config": {
+    "architecture": "efficientnet_b0",
+    "pretrained": true,
+    "epochs": 15,
+    "patience": 4,
+    "batch_size": 32,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "augmentation": true,
+    "repeat_positives": 3,
+    "seed": 42,
+    "device": "cuda",
+    "fine_tune_last_block": false,
+    "selection_metric": "auc",
+    "other_findings_negative_weight": 1.0,
+    "nih_follow_up_metadata": null,
+    "data": "data/processed/nih_effusion_pa_modelo_e_v1",
+    "output": "models/modelo_e_efficientnet_b0"
+  },
+  "limit": null,
+  "device": "cuda",
+  "versions": {
+    "torch": "2.14.1+cu126",
+    "torchvision": "0.29.1+cu126",
+    "numpy": "2.3.5"
+  },
+  "train_images": 22594,
+  "train_samples_per_epoch": 30810,
+  "train_positive_fraction": 0.4,
+  "val_images": 1813,
+  "best_epoch": 2,
+  "epochs_run": 6,
+  "train_seconds": 1155.4470419999998,
+  "val": {
+    "auc": 0.8974759127789047,
+    "threshold": 0.2931084632873535,
+    "tp": 601,
+    "fp": 173,
+    "fn": 124,
+    "tn": 915,
+    "accuracy": 0.8361831218974076,
+    "precision": 0.7764857881136951,
+    "recall": 0.8289655172413793,
+    "specificity": 0.8409926470588235,
+    "f1": 0.8018679119412941
+  },
+  "val_threshold_0_5": {
+    "threshold": 0.5,
+    "tp": 531,
+    "fp": 108,
+    "fn": 194,
+    "tn": 980,
+    "accuracy": 0.8334252619966905,
+    "precision": 0.8309859154929577,
+    "recall": 0.7324137931034482,
+    "specificity": 0.9007352941176471,
+    "f1": 0.7785923753665689
+  },
+  "val_baselines": {
+    "always_positive": {
+      "threshold": 1.0,
+      "tp": 725,
+      "fp": 1088,
+      "fn": 0,
+      "tn": 0,
+      "accuracy": 0.3998896856039713,
+      "precision": 0.3998896856039713,
+      "recall": 1.0,
+      "specificity": 0.0,
+      "f1": 0.5713159968479118
+    },
+    "always_negative": {
+      "threshold": 1.0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 725,
+      "tn": 1088,
+      "accuracy": 0.6001103143960287,
+      "precision": 0.0,
+      "recall": 0.0,
+      "specificity": 1.0,
+      "f1": 0.0
+    }
+  },
+  "note": "La época y el umbral se eligieron con val, así que estas métricas son optimistas. Test no se usó."
+}

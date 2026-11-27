@@ -1,7 +1,7 @@
 # Integración continua: en cada push y pull request instala el proyecto con las versiones fijadas,
 # corre las pruebas automáticas, recalcula los resultados publicados y prueba el MVP (rx-predecir)
-# con los cuatro modelos sobre las radiografías de ejemplo. No necesita el dataset: las pruebas usan
-# datos sintéticos, y los pesos y las predicciones de los cuatro modelos están versionados.
+# con los modelos publicados sobre las radiografías de ejemplo. Las pruebas usan datos sintéticos
+# y las predicciones y los pesos versionados.
 name: Pruebas
 
 on:
@@ -64,9 +64,9 @@ jobs:
           print('Las 4 radiografías de ejemplo dan la clase documentada en el README.')
           EOF
 
-      - name: Modelos A, control y C · rx-predecir sobre las radiografías de ejemplo
+      - name: Modelos A, control, C, D y E · rx-predecir sobre las radiografías de ejemplo
         run: |
-          for modelo in modelo_a_densenet121_v1 modelo_control_v2_densenet121 modelo_c_v2_densenet121; do
+          for modelo in modelo_a_densenet121_v1 modelo_control_v2_densenet121 modelo_c_v2_densenet121 modelo_d_efficientnet_b0 modelo_e_efficientnet_b0; do
             rx-predecir --modelo models/$modelo examples/radiografias/*.png
           done
 
