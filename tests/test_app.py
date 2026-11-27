@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image
 
 from rx_torax.inference.app import Analizador, crear_servidor
-from rx_torax.inference.predict import DEFAULT_MODEL
+from rx_torax.inference.predict import DEFAULT_MODEL, predict
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'examples' / 'radiografias'
@@ -71,6 +71,18 @@ class AppTests(unittest.TestCase):
         self.assertIn('PNG, JPEG o TIFF', result['error'])
         status, result = self.post(b'')
         self.assertEqual(status, 400)
+
+    def test_efficientnet_score_and_map(self):
+        model = ROOT / 'models' / 'modelo_d_efficientnet_b0'
+        image = EXAMPLES / '00022899_024.png'
+        (prediction,), _ = predict(model, [image], 'cpu')
+        result = Analizador(model, 'cpu').analizar(image.read_bytes())
+        self.assertEqual(result['puntaje'], round(prediction['score'], 6))
+        self.assertEqual(result['positivo'], bool(prediction['predicted']))
+        self.assertNotEqual(result['mapa'], result['entrada'])
+        _, encoded = result['mapa'].split(',', 1)
+        with Image.open(io.BytesIO(base64.b64decode(encoded))) as heatmap:
+            self.assertEqual(heatmap.size, (224, 224))
 
 
 if __name__ == '__main__':

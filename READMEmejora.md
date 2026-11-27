@@ -24,7 +24,7 @@ D y E usan **22.594 imágenes distintas de entrenamiento**, 30.810 ejemplos por 
 | **D · EfficientNet-B0** | 0,7937 | 0,8974 | **0,7594** | 0,8682 | 16,32 MB |
 | **E · EfficientNet-B0** | **0,8019** | 0,8975 | 0,7415 | 0,8593 | 16,32 MB |
 
-**D mejoró el F1 de B en test en 1,58 puntos porcentuales**, con un IC 95 % pareado por paciente de **+0,68 a +2,49 puntos**. Dio **291 falsas alarmas menos** (714 frente a 1.005), mejoró la especificidad de **61,8 % a 72,9 %** y el recall pasó de **93,1 % a 86,1 %**. La diferencia de AUC fue de −0,0010, con un IC 95 % de −0,0064 a +0,0045. El archivo de pesos ocupa **42,5 % menos** y la red binaria tiene 4.008.829 parámetros frente a 6.954.881 de B.
+**D mejoró el F1 de B en test en 1,58 puntos porcentuales**, con un IC 95 % pareado por paciente de **+0,68 a +2,49 puntos**. Dio **291 falsas alarmas menos** (714 frente a 1.005), mejoró la precisión de **61,9 % a 67,9 %** y la especificidad de **61,8 % a 72,9 %**. El recall pasó de **93,1 % a 86,1 %**. La diferencia de AUC fue de −0,0010, con un IC 95 % de −0,0064 a +0,0045. El archivo de pesos ocupa **42,5 % menos** y la red binaria tiene 4.008.829 parámetros frente a 6.954.881 de B. [Comparación pareada B–D en test](models/comparacion_test_b_d/report.json)
 
 **E logró F1 de 0,8019 en validación.** El IC 95 % de la diferencia contra D va de −0,77 a +2,27 puntos porcentuales. A igual detección de 554 derrames, E produjo 129 falsas alarmas frente a 117 de D. En el grupo de 10 o más estudios previos, produjo 27 frente a 23. Por ese resultado, D fue el modelo elegido. Se evaluó E en test de forma **exploratoria**, con el umbral ya fijado. Frente a B, E redujo las falsas alarmas de **1.005 a 931** y mantuvo la reducción de tamaño de EfficientNet-B0. Su F1 en test fue 0,7415, con una diferencia contra B de −0,21 puntos porcentuales y un IC 95 % de −1,07 a +0,63 puntos.
 
@@ -46,6 +46,9 @@ rx-predecir --modelo models/modelo_d_efficientnet_b0 examples/radiografias/00022
 rx-predecir --modelo models/modelo_e_efficientnet_b0 examples/radiografias/00022899_024.png
 rx-recalcular
 ~~~
+
+Para ver el mapa de calor del modelo D, ejecutá `rx-probar --modelo models/modelo_d_efficientnet_b0`.
+La página usa el mismo cálculo de puntaje que `rx-predecir`.
 
 ## Reconstruir los datos y reentrenar
 
