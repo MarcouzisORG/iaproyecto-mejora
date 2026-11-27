@@ -8,13 +8,14 @@ import math
 import shutil
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
 
+from rx_torax.data.splits import FOLLOW_UP_BINS, follow_up_bin, quotas
 from rx_torax.evaluation.metrics import best_threshold, binary_metrics, roc_auc, trivial_baselines
 from rx_torax.training.model import build_model, to_input
 
@@ -22,7 +23,7 @@ from rx_torax.training.model import build_model, to_input
 DEFAULTS = {'architecture': 'densenet121', 'pretrained': True, 'epochs': 15, 'patience': 4, 'batch_size': 32,
             'learning_rate': 1e-4, 'weight_decay': 1e-4, 'augmentation': True, 'repeat_positives': 1, 'seed': 42,
             'device': 'auto', 'fine_tune_last_block': False, 'selection_metric': 'auc',
-            'other_findings_negative_weight': 1.0}
+            'other_findings_negative_weight': 1.0, 'nih_follow_up_metadata': None}
 
 
 def load_config(path, output=None):
@@ -36,6 +37,9 @@ def load_config(path, output=None):
         raise ValueError(f"Configuración: faltan {sorted(required-given.keys())}; "
                          f"claves desconocidas {sorted(given.keys()-required-set(DEFAULTS))}")
     config = DEFAULTS | given
+    metadata = config['nih_follow_up_metadata']
+    if metadata is not None and (not isinstance(metadata, str) or not metadata.strip()):
+        raise ValueError('nih_follow_up_metadata debe ser una ruta al CSV de NIH')
     weight = config['other_findings_negative_weight']
     if type(weight) not in (int, float) or weight < 1 or not math.isfinite(weight):
         raise ValueError('other_findings_negative_weight debe ser un número finito mayor o igual a 1')
@@ -75,18 +79,62 @@ def repeat_positive_indices(indices, labels, repeat):
     return np.concatenate([indices, np.repeat(indices[labels[indices] == 1], repeat - 1)])
 
 
-def other_findings_weights(path, labels, weight):
-    """Identifica las negativas con otros hallazgos usando solo la metadata de train."""
+def read_training_rows(path, labels, fields):
+    """Lee el manifiesto en el mismo orden que los arrays preparados."""
     with path.open(newline='', encoding='utf-8-sig') as stream:
         reader = csv.DictReader(stream)
-        if not {'array_index', 'target', 'target_original'} <= set(reader.fieldnames or []):
-            raise ValueError(f'{path}: faltan columnas para identificar las negativas con otros hallazgos')
+        missing = (fields | {'array_index', 'target'}) - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f'{path}: faltan columnas {sorted(missing)}')
         rows = list(reader)
     if [int(row['array_index']) for row in rows] != list(range(len(labels))) or \
             [int(row['target']) for row in rows] != labels.tolist():
         raise ValueError(f'{path}: las filas no coinciden con y_train.npy')
+    return rows
+
+
+def other_findings_weights(path, labels, weight):
+    """Identifica las negativas con otros hallazgos usando solo la metadata de train."""
+    rows = read_training_rows(path, labels, {'target_original'})
     findings = np.array([row['target_original'] for row in rows])
     return np.where((labels == 0) & (findings != 'No Finding'), weight, 1.0).astype(np.float32)
+
+
+def load_train_follow_up(path, metadata, labels):
+    rows = read_training_rows(path, labels, {'image_path'})
+    # Los manifiestos preparados pueden traer rutas de otra plataforma.
+    names = [PurePosixPath(row['image_path'].replace('\\', '/')).name for row in rows]
+    wanted = set(names)
+    with metadata.open(newline='', encoding='utf-8-sig') as stream:
+        reader = csv.DictReader(stream)
+        if not {'Image Index', 'Follow-up #'} <= set(reader.fieldnames or []):
+            raise ValueError(f'{metadata}: se necesitan Image Index y Follow-up #')
+        groups = {row['Image Index']: follow_up_bin(int(row['Follow-up #']))
+                  for row in reader if row['Image Index'] in wanted}
+    if missing := wanted - groups.keys():
+        raise ValueError(f'{metadata}: faltan {len(missing)} imágenes de train')
+    return np.array([groups[name] for name in names])
+
+
+def match_follow_up_negatives(indices, labels, follow_up, rng):
+    """Iguala la mezcla de seguimientos de ambas clases manteniendo sus tamaños por época."""
+    positive = indices[labels[indices] == 1]
+    negative = indices[labels[indices] == 0]
+    if not len(positive) or not len(negative):
+        raise ValueError('El muestreo por estudios previos necesita ambas clases en train')
+    shares = {group: int(np.count_nonzero(follow_up[positive] == group)) for group in FOLLOW_UP_BINS}
+    counts = quotas(len(negative), shares)
+    chosen = [positive]
+    for group, count in counts.items():
+        if count == 0:
+            continue
+        candidates = negative[follow_up[negative] == group]
+        if not len(candidates):
+            raise ValueError(f'Faltan negativas con {group} estudios previos para balancear train')
+        # Repartir las repeticiones por igual y sortear solo el resto de la cuota.
+        repeats, remainder = divmod(count, len(candidates))
+        chosen.extend([np.tile(candidates, repeats), rng.choice(candidates, size=remainder, replace=False)])
+    return np.concatenate(chosen)
 
 
 def augment(batch, generator):
@@ -170,7 +218,9 @@ def train(config, limit=None):
     target_name = json.loads((data / 'labels.json').read_text(encoding='utf-8'))['target']
     mean, std = preprocessing['train_mean'], preprocessing['train_std']
     images, labels, unique_indices = load_split(data, 'train', limit)
-    indices = repeat_positive_indices(unique_indices, labels, config['repeat_positives'])
+    base_indices = repeat_positive_indices(unique_indices, labels, config['repeat_positives'])
+    metadata = config.get('nih_follow_up_metadata')
+    follow_up = load_train_follow_up(data / 'train.csv', Path(metadata), labels) if metadata else None
     weight = config.get('other_findings_negative_weight', DEFAULTS['other_findings_negative_weight'])
     epoch_options = {}
     if weight != 1:
@@ -179,6 +229,7 @@ def train(config, limit=None):
     device = pick_device(config['device'])
     torch.manual_seed(config['seed'])
     rng = np.random.default_rng(config['seed'])
+    sampling_rng = np.random.default_rng([config['seed'], 1])
     generator = torch.Generator().manual_seed(config['seed'])
     model = build_model(config['architecture'], config['pretrained']).to(device)
     fine_tune_last_block = config.get('fine_tune_last_block', False)
@@ -190,12 +241,15 @@ def train(config, limit=None):
     val_target = torch.from_numpy(labels_val.astype(np.float32))
     selection_metric = config.get('selection_metric', DEFAULTS['selection_metric'])
     print(f'Entrenando {config["architecture"]} en {device}: {len(unique_indices)} imágenes de train '
-          f'({len(indices)} por época), {len(val_indices)} de val')
+          f'({len(base_indices)} por época), {len(val_indices)} de val')
 
     checkpoint = stage / 'modelo.pt'
     history, best_value, best_epoch = [], -1.0, 0
     started = time.perf_counter()
     for epoch in range(1, config['epochs'] + 1):
+        indices = base_indices
+        if follow_up is not None:
+            indices = match_follow_up_negatives(base_indices, labels, follow_up, sampling_rng)
         if fine_tune_last_block and epoch == 2:
             # Última etapa MBConv y proyección final de EfficientNet-B0.
             model.features[-2:].requires_grad_(True)
@@ -247,6 +301,12 @@ def train(config, limit=None):
               'val_threshold_0_5': binary_metrics(labels_val, scores, 0.5),
               'val_baselines': trivial_baselines(labels_val),
               'note': 'La época y el umbral se eligieron con val, así que estas métricas son optimistas. Test no se usó.'}
+    if follow_up is not None:
+        report['train_follow_up_counts_per_epoch'] = {
+            name: {group: int(np.count_nonzero((labels[indices] == target) & (follow_up[indices] == group)))
+                   for group in FOLLOW_UP_BINS}
+            for name, target in [('positives', 1), ('negatives', 0)]
+        }
     (stage / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     stage.rename(output)
     return report

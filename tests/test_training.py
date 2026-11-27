@@ -137,6 +137,32 @@ class TrainingTests(unittest.TestCase):
         expected = [1.5 if index % 4 == 1 else 1.0 for index in order]
         self.assertEqual(observed, [(expected, 'sum'), (None, 'mean')])
 
+    def test_follow_up_sampling_matches_negative_quotas_and_preserves_positives(self):
+        labels = np.load(self.data / 'y_train.npy')
+        follow_up = [0, 0, 0, 0, 4, 0, 4, 0, 4, 0, 4, 4, 12, 4, 12, 12]
+        with (self.data / 'train.csv').open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['array_index', 'target', 'image_path'])
+            writer.writerows((i, label, f'carpeta/{i}.png') for i, label in enumerate(labels))
+        metadata = self.root / 'nih.csv'
+        with metadata.open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['Image Index', 'Follow-up #'])
+            writer.writerows((f'{i}.png', value) for i, value in enumerate(follow_up))
+
+        def inspect_epoch(model, images, labels, indices, *args):
+            self.assertEqual(sorted(indices[labels[indices] == 1]), np.repeat(np.arange(0, 16, 2), 3).tolist())
+            return train_epoch(model, images, labels, indices, *args)
+
+        config = self.config('i') | {'epochs': 1, 'repeat_positives': 3, 'nih_follow_up_metadata': str(metadata)}
+        with patch('rx_torax.training.train.train_epoch', new=inspect_epoch):
+            report = train(config)
+        self.assertEqual(report['train_samples_per_epoch'], 32)
+        self.assertEqual(report['val_images'], 8)
+        self.assertEqual(report['train_follow_up_counts_per_epoch'], {
+            'positives': {'0': 6, '1-9': 12, '10+': 6}, 'negatives': {'0': 2, '1-9': 4, '10+': 2},
+        })
+
     def test_efficientnet_fine_tunes_classifier_then_last_blocks(self):
         active_blocks_by_epoch = []
 
