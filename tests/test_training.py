@@ -89,6 +89,22 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual((artifact['train_mean'], artifact['train_std'], artifact['image_size']), (0.2, 0.2, 64))
         self.assertFalse((self.root / 'a.parcial').exists())
 
+    def test_f1_selection_can_save_a_different_epoch_than_auc(self):
+        first = torch.tensor([8., 6., 7., 4., 5., 2., 3., 1.])
+        second = torch.tensor([7., 8., 6., 3., 5., 2., 4., 1.])
+        predictions = iter([first, second, second])
+
+        def validation_logits(*args):
+            return next(predictions)
+
+        with patch('rx_torax.training.train.predict_logits', new=validation_logits):
+            report = train(self.config('a') | {'selection_metric': 'f1'})
+        history = list(csv.DictReader((self.root / 'a' / 'historial.csv').read_text(encoding='utf-8').splitlines()))
+        self.assertGreater(float(history[0]['val_auc']), float(history[1]['val_auc']))
+        self.assertLess(float(history[0]['val_f1']), float(history[1]['val_f1']))
+        self.assertEqual(report['best_epoch'], 2)
+        self.assertAlmostEqual(report['val']['f1'], float(history[1]['val_f1']))
+
     def test_repeat_positives_only_changes_train_samples(self):
         labels = np.array([1, 0, 0, 1, 0])
         indices = np.array([0, 1, 3, 4])

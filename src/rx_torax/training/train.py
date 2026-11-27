@@ -21,7 +21,7 @@ from rx_torax.training.model import build_model, to_input
 
 DEFAULTS = {'architecture': 'densenet121', 'pretrained': True, 'epochs': 15, 'patience': 4, 'batch_size': 32,
             'learning_rate': 1e-4, 'weight_decay': 1e-4, 'augmentation': True, 'repeat_positives': 1, 'seed': 42,
-            'device': 'auto', 'fine_tune_last_block': False}
+            'device': 'auto', 'fine_tune_last_block': False, 'selection_metric': 'auc'}
 
 
 def load_config(path, output=None):
@@ -35,6 +35,8 @@ def load_config(path, output=None):
         raise ValueError(f"Configuración: faltan {sorted(required-given.keys())}; "
                          f"claves desconocidas {sorted(given.keys()-required-set(DEFAULTS))}")
     config = DEFAULTS | given
+    if config['selection_metric'] not in ('auc', 'f1'):
+        raise ValueError('selection_metric debe ser auc o f1')
     if not isinstance(config['fine_tune_last_block'], bool):
         raise ValueError('fine_tune_last_block debe ser booleano')
     if config['fine_tune_last_block'] and config['architecture'] != 'efficientnet_b0':
@@ -156,12 +158,14 @@ def train(config, limit=None):
         model.features.requires_grad_(False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.3, patience=1)
-    val_target = torch.from_numpy(val_labels[val_indices].astype(np.float32))
+    labels_val = val_labels[val_indices]
+    val_target = torch.from_numpy(labels_val.astype(np.float32))
+    selection_metric = config.get('selection_metric', DEFAULTS['selection_metric'])
     print(f'Entrenando {config["architecture"]} en {device}: {len(unique_indices)} imágenes de train '
           f'({len(indices)} por época), {len(val_indices)} de val')
 
     checkpoint = stage / 'modelo.pt'
-    history, best_auc, best_epoch = [], -1.0, 0
+    history, best_value, best_epoch = [], -1.0, 0
     started = time.perf_counter()
     for epoch in range(1, config['epochs'] + 1):
         if fine_tune_last_block and epoch == 2:
@@ -172,20 +176,26 @@ def train(config, limit=None):
         train_loss = train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator)
         logits = predict_logits(model, val_images, val_indices, mean, std, config['batch_size'] * 2, device)
         val_loss = F.binary_cross_entropy_with_logits(logits, val_target).item()
-        val_auc = roc_auc(val_labels[val_indices], logits.numpy())
+        val_auc = roc_auc(labels_val, logits.numpy())
+        scores = torch.sigmoid(logits).numpy().astype(np.float64)
+        threshold = best_threshold(labels_val, scores)
+        val_f1 = binary_metrics(labels_val, scores, threshold)['f1']
         scheduler.step(val_auc)
+        selection_value = val_f1 if selection_metric == 'f1' else val_auc
         history.append({'epoch': epoch, 'learning_rate': rate, 'train_loss': train_loss, 'val_loss': val_loss,
-                        'val_auc': val_auc, 'seconds': time.perf_counter() - epoch_started})
+                        'val_auc': val_auc, 'val_f1': val_f1, 'seconds': time.perf_counter() - epoch_started})
         write_csv(stage / 'historial.csv', history)
-        print(f'Época {epoch}: train_loss={train_loss:.4f} val_loss={val_loss:.4f} val_auc={val_auc:.4f} '
+        print(f'Época {epoch}: train_loss={train_loss:.4f} val_loss={val_loss:.4f} '
+              f'val_auc={val_auc:.4f} val_f1={val_f1:.4f} '
               f'({history[-1]["seconds"]:.0f} s)')
-        if val_auc > best_auc:
-            best_auc, best_epoch = val_auc, epoch
+        if selection_value > best_value:
+            best_value, best_epoch = selection_value, epoch
             torch.save({'architecture': config['architecture'], 'state_dict': model.state_dict(), 'train_mean': mean,
                         'train_std': std, 'image_size': preprocessing['image_size'], 'target': target_name,
                         'epoch': epoch}, checkpoint)
         elif epoch - best_epoch >= config['patience']:
-            print(f'Sin mejora en {config["patience"]} épocas; se detiene el entrenamiento')
+            print(f'Sin mejora de {selection_metric.upper()} en {config["patience"]} épocas; '
+                  'se detiene el entrenamiento')
             break
 
     # Las métricas salen del artefacto guardado, no del último estado en memoria.
@@ -193,7 +203,6 @@ def train(config, limit=None):
     model.load_state_dict(artifact['state_dict'])
     logits = predict_logits(model, val_images, val_indices, mean, std, config['batch_size'] * 2, device)
     scores = torch.sigmoid(logits).numpy().astype(np.float64)
-    labels_val = val_labels[val_indices]
     threshold = best_threshold(labels_val, scores)
     artifact['threshold'] = threshold
     torch.save(artifact, checkpoint)
@@ -208,7 +217,7 @@ def train(config, limit=None):
               'val': {'auc': roc_auc(labels_val, scores), **binary_metrics(labels_val, scores, threshold)},
               'val_threshold_0_5': binary_metrics(labels_val, scores, 0.5),
               'val_baselines': trivial_baselines(labels_val),
-              'note': 'El umbral se eligió con val, así que estas métricas son optimistas. Test no se usó.'}
+              'note': 'La época y el umbral se eligieron con val, así que estas métricas son optimistas. Test no se usó.'}
     (stage / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     stage.rename(output)
     return report
