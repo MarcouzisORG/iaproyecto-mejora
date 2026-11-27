@@ -1,50 +1,77 @@
-# Mejora individual del MVP — modelo D con EfficientNet-B0
+# Mejora individual del MVP con EfficientNet-B0
 
-**Autor:** Marcos Agustín García Mombello
+**Autor** — Marcos Agustín García Mombello
 
-El modelo D va a clasificar radiografías de tórax PA según la etiqueta `Effusion` de NIH ChestX-ray14. El experimento toma como referencia el modelo B, que fue el modelo final del MVP, y cambia DenseNet121 por EfficientNet-B0. La pregunta es si una red con menos parámetros puede mantener o mejorar el rendimiento de B sobre las mismas imágenes.
+Probé **EfficientNet-B0** para detectar derrame pleural (Effusion) en radiografías de tórax PA del NIH. El **Modelo D** es la mejora principal. El **Modelo E** pone a prueba un cambio en la selección de radiografías negativas de entrenamiento. Los dos parten de pesos de ImageNet y tienen una salida binaria.
 
-## Datos y condiciones de la comparación
+## Qué cambió
 
-Se va a usar la carpeta `data/processed/nih_effusion_pa_modelo_b_v1`, verificada contra los hashes originales del equipo. Contiene 22.594 imágenes distintas de entrenamiento, 1.813 de validación y 4.390 de test, separadas por paciente. D mantiene la resolución de 224 × 224, el preprocesamiento, los aumentos, la repetición de positivos, la semilla 42 y los hiperparámetros de B. La inicialización usa los pesos de ImageNet correspondientes a EfficientNet-B0.
+| Modelo | Arquitectura | Entrenamiento |
+| --- | --- | --- |
+| **B** | DenseNet121 | Conjunto y receta de referencia del MVP |
+| **D** | EfficientNet-B0 | Mismas imágenes y receta de B, con los pesos de ImageNet de EfficientNet-B0 |
+| **E** | EfficientNet-B0 | Receta de D con 730 reemplazos de imágenes negativas |
 
-## Qué se va a realizar
+En E, cada reemplazo conserva el paciente y el grupo de hallazgos («sin hallazgos» u «otros hallazgos»). Una placa con menos de 10 estudios previos se reemplaza por otra placa PA sin derrame, con 10 o más estudios previos. Se auditaron los píxeles para evitar duplicados exactos. El cambio abarca **544 pacientes**, con 525 reemplazos sin hallazgos y 205 con otros hallazgos. El [manifiesto de reemplazos](models/modelo_e_efficientnet_b0/reemplazos_train.csv) identifica la imagen original, su sustituta y el hash de píxeles.
 
-1. Agregar `efficientnet_b0` a `build_model` en `src/rx_torax/training/model.py`. Se van a cargar los pesos de ImageNet de `torchvision` y reemplazar la última capa del clasificador por una salida para `Effusion`.
-2. Crear `configs/modelo_b_efficientnet_b0.json` a partir de `configs/modelo_b.json`, con `efficientnet_b0` como arquitectura y `models/modelo_d_efficientnet_b0` como salida.
-3. Hacer una corrida corta para verificar que D entrena, guarda un `modelo.pt` y puede volver a cargarlo para predecir. Adaptar el mapa de calor de `rx-probar` al flujo de EfficientNet-B0 y verificar que su puntaje coincida con el de `rx-predecir` para la misma imagen.
-4. Entrenar D con los datos completos. Elegir la época por AUC y el umbral por F1, ambos en validación. Ejecutar `rx-comparar` con las predicciones de D y las publicadas de B para estimar la diferencia pareada por paciente.
-5. Con la época y el umbral fijados, evaluar D una sola vez en test y comparar sus predicciones con las que ya están publicadas para B. Guardar la configuración, el historial, el checkpoint, las predicciones y los reportes.
+D y E usan **22.594 imágenes distintas de entrenamiento**, 30.810 ejemplos por época al repetir las positivas, resolución **224 × 224**, semilla **42** y la misma normalización. Comparten **1.813 radiografías de validación** y **4.390 de test**, idénticas byte por byte. El test es la submuestra PA del listado oficial del NIH que usó B, con un 40 % de positivas. En cada corrida se eligió la época por AUC y el umbral por F1 en validación.
 
-## Qué esperamos que cambie
+## Resultados
 
-Con la salida binaria, D tiene **4.008.829 parámetros** frente a los **6.954.881** de B, una reducción del **42,4 %**. La hipótesis es que esa reducción puede mantener un rendimiento cercano al de B. El efecto sobre F1 y AUC se medirá con el experimento.
+| Modelo | F1 en validación | AUC en validación | F1 en test | AUC en test | Pesos |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **B · DenseNet121** | 0,8000 | 0,9051 | 0,7436 | **0,8692** | 28,41 MB |
+| **D · EfficientNet-B0** | 0,7937 | 0,8974 | **0,7594** | 0,8682 | 16,32 MB |
+| **E · EfficientNet-B0** | **0,8019** | 0,8975 | 0,7415 | 0,8593 | 16,32 MB |
 
-| Métrica | B en validación | B en test | Qué se va a comprobar en D |
-| --- | ---: | ---: | --- |
-| F1 de `Effusion` | 0,800 | 0,744 | Es la métrica principal. Se medirá si D mantiene o mejora el equilibrio entre precisión y recall con su umbral de validación. |
-| AUC ROC | 0,905 | 0,869 | Se medirá si D ordena mejor las imágenes positivas y negativas a lo largo de todos los umbrales. |
-| Recall | 85,5 % | 93,1 % | Se revisará la proporción de positivos detectados. |
-| Especificidad | 81,2 % | 61,8 % | Se revisará la proporción de negativos correctamente descartados. |
+**D mejoró el F1 de B en test en 1,58 puntos porcentuales**, con un IC 95 % pareado por paciente de **+0,68 a +2,49 puntos**. Dio **291 falsas alarmas menos** (714 frente a 1.005), mejoró la especificidad de **61,8 % a 72,9 %** y el recall pasó de **93,1 % a 86,1 %**. La diferencia de AUC fue de −0,0010, con un IC 95 % de −0,0064 a +0,0045. El archivo de pesos ocupa **42,5 % menos** y la red binaria tiene 4.008.829 parámetros frente a 6.954.881 de B.
 
-Se informará la diferencia **D − B** y su intervalo de confianza del 95 % para F1 y AUC. Un intervalo completamente por encima de cero respaldaría una mejora en esa métrica. Si incluye cero, la diferencia queda inconclusa con esta evaluación. También se registrarán el dispositivo y las versiones usadas para interpretar los resultados.
+**E logró F1 de 0,8019 en validación.** El IC 95 % de la diferencia contra D va de −0,77 a +2,27 puntos porcentuales. A igual detección de 554 derrames, E produjo 129 falsas alarmas frente a 117 de D. En el grupo de 10 o más estudios previos, produjo 27 frente a 23. Por ese resultado, D fue el modelo elegido. Se evaluó E en test de forma **exploratoria**, con el umbral ya fijado. Frente a B, E redujo las falsas alarmas de **1.005 a 931** y mantuvo la reducción de tamaño de EfficientNet-B0. Su F1 en test fue 0,7415, con una diferencia contra B de −0,21 puntos porcentuales y un IC 95 % de −1,07 a +0,63 puntos.
 
-Los valores de referencia salen de los reportes del modelo B. [Validación](models/modelo_b_densenet121_v1/evaluacion_val/report.json) · [Test](models/modelo_b_densenet121_v1/evaluacion_test/report.json) · [Protocolo del equipo](docs/MEJORAS_FINAL.md#protocolo)
+La meta de **F1 de 0,80 en test** quedó pendiente. B es la referencia DenseNet121 del MVP para las comparaciones pareadas de validación y test. A obtuvo F1 de 0,7951 en la validación compartida. Los resultados de Control y C corresponden a otra partición. B se entrenó en una Mac M4 con MPS y D/E en una GTX 1080 con CUDA. Los intervalos reflejan la variación de la muestra evaluada, con una corrida por modelo.
 
-## Entrenamiento en una GTX 1080
+| Comparación pareada | Validación | Test |
+| --- | --- | --- |
+| B–D | [Reporte](models/comparacion_val_b_d/report.json) · [Gráfico](models/comparacion_val_b_d/comparacion_val.png) | [Reporte](models/comparacion_test_b_d/report.json) · [Gráfico](models/comparacion_test_b_d/comparacion_test.png) |
+| B–E | [Reporte](models/comparacion_val_b_e/report.json) · [Gráfico](models/comparacion_val_b_e/comparacion_val.png) | [Reporte](models/comparacion_test_b_e/report.json) · [Gráfico](models/comparacion_test_b_e/comparacion_test.png) |
+| D–E | [Reporte](models/comparacion_val_d_e/report.json) · [Criterio de selección](models/comparacion_val_d_e/seleccion_test.json) | [Reporte](models/comparacion_test_d_e/report.json) · [Gráfico](models/comparacion_test_d_e/comparacion_test.png) |
 
-Para la GTX 1080 (Pascal) en Windows, usar Python 3.12 y PyTorch 2.14.1 con CUDA 12.6 en un entorno separado. PyTorch 2.14 es la última versión que publica binarios para esta arquitectura. [Compatibilidad de PyTorch con Pascal](https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432)
+## Usar los pesos y verificar las métricas
 
-Desde la raíz del repositorio, creá el entorno, instalá las versiones CUDA y verificá que PyTorch vea la GPU.
+Desde la raíz del repositorio, instalá el proyecto. Los directorios de [D](models/modelo_d_efficientnet_b0) y [E](models/modelo_e_efficientnet_b0) incluyen los pesos originales, su historial y las predicciones por imagen de validación y test. Con esas predicciones, rx-recalcular reproduce las métricas y los intervalos pareados sin descargar NIH ni usar GPU.
 
-```powershell
+~~~bash
+python -m pip install -e .
+rx-predecir --modelo models/modelo_d_efficientnet_b0 examples/radiografias/00022899_024.png
+rx-predecir --modelo models/modelo_e_efficientnet_b0 examples/radiografias/00022899_024.png
+rx-recalcular
+~~~
+
+## Reconstruir los datos y reentrenar
+
+Descargá el [NIH ChestX-ray14](https://nihcc.app.box.com/v/ChestXray-NIHCC). Colocá Data_Entry_2017_v2020.csv, train_val_list.txt y test_list.txt juntos. En la subcarpeta images/ dejá los doce archivos images_001.tar.gz a images_012.tar.gz. El script de D usa los [manifiestos publicados](configs/nih_effusion_pa_modelo_b_v1_manifiestos.zip) y coteja los seis arrays contra los SHA-256 originales. El de E comprueba los 730 reemplazos contra el listado publicado. Si ya tenés el conjunto preparado original de B, podés verificarlo con rx-verificar-datos data/processed/nih_effusion_pa_modelo_b_v1 y usarlo directamente como base de E.
+
+Windows con Python 3.12 y GTX 1080. El entorno usa las mismas versiones de las corridas publicadas. [Compatibilidad de PyTorch con Pascal](https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432)
+
+~~~powershell
 $envCuda = Join-Path $env:LOCALAPPDATA 'venvs\iaproyecto-cu126'
-python -m venv $envCuda
+py -3.12 -m venv $envCuda
 $pythonCuda = Join-Path $envCuda 'Scripts\python.exe'
 & $pythonCuda -m pip install --index-url https://download.pytorch.org/whl/cu126 torch==2.14.1+cu126 torchvision==0.29.1+cu126
 & $pythonCuda -m pip install -e .
 & $pythonCuda -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
-& $pythonCuda -m rx_torax.training.train --config configs/modelo_b_efficientnet_b0.json
-```
 
-El reporte de D registra el dispositivo y las versiones de las bibliotecas. Esos datos acompañan la comparación con B porque el entorno de entrenamiento puede influir en los resultados.
+$nih = 'data/raw/nih'
+$d = 'data/processed/nih_effusion_pa_modelo_b_v1'
+$e = 'data/processed/nih_effusion_pa_modelo_e_v1'
+& $pythonCuda scripts/preparar_modelo_d.py --nih $nih --salida $d
+& $pythonCuda scripts/preparar_modelo_e.py --nih $nih --base $d --salida $e --verificar-reemplazos models/modelo_e_efficientnet_b0/reemplazos_train.csv
+& $pythonCuda -m rx_torax.data.checksums $e
+
+& $pythonCuda -m rx_torax.training.train --config configs/modelo_b_efficientnet_b0.json --salida work/reentrenado/modelo_d
+& $pythonCuda -m rx_torax.training.train --config configs/modelo_e_efficientnet_b0.json --salida work/reentrenado/modelo_e
+~~~
+
+La reconstrucción verifica las imágenes y sus arrays. Los pesos publicados permiten volver a usar los modelos de esta entrega. La semilla y el entorno permiten repetir la receta de entrenamiento. Los pesos de una corrida nueva pueden variar según el hardware y las bibliotecas.
+
+**Datos** — NIH Clinical Center, NIH ChestX-ray14. [Descarga oficial](https://nihcc.app.box.com/v/ChestXray-NIHCC) · [Wang et al., IEEE CVPR 2017](https://openaccess.thecvf.com/content_cvpr_2017/html/Wang_ChestX-ray8_Hospital-Scale_Chest_CVPR_2017_paper.html)
