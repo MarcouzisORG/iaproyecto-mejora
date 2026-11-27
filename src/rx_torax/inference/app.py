@@ -20,7 +20,6 @@ import numpy as np
 import torch
 from matplotlib import colormaps
 from PIL import Image, UnidentifiedImageError
-from torch.nn import functional as F
 
 from rx_torax.evaluation.evaluate import load_model
 from rx_torax.inference.predict import DEFAULT_MODEL
@@ -65,11 +64,16 @@ class Analizador:
                 'umbral': round(float(self.artifact['threshold']), 6), 'tamaño': int(self.artifact['image_size'])}
 
     def puntaje_y_mapa(self, imagen):
-        """Mismo cálculo que DenseNet121.forward, guardando las activaciones de la última capa convolucional."""
+        """Usa el forward del modelo y guarda las activaciones para Grad-CAM."""
         batch = torch.from_numpy(imagen[None]).to(self.device)
         entrada = to_input(batch, self.artifact['train_mean'], self.artifact['train_std'])
-        activaciones = F.relu(self.model.features(entrada))
-        logit = self.model.classifier(torch.flatten(F.adaptive_avg_pool2d(activaciones, (1, 1)), 1)).squeeze()
+        capturadas = []
+        hook = self.model.features.register_forward_hook(lambda _modulo, _entrada, salida: capturadas.append(salida))
+        try:
+            logit = self.model(entrada).squeeze()
+        finally:
+            hook.remove()
+        (activaciones,) = capturadas
         (gradiente,) = torch.autograd.grad(logit, activaciones)
         pesos = gradiente.mean(dim=(2, 3), keepdim=True)
         mapa = torch.relu((pesos * activaciones).sum(dim=1)).squeeze(0).detach().cpu().numpy()
