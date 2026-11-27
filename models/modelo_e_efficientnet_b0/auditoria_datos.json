@@ -1,0 +1,35 @@
+{
+  "base": "data/processed/nih_effusion_pa_modelo_b_v1",
+  "metadata_sha256": "c69a6daca3549af707ca9cacbdf9f9a7b6a9188e8c61157df653520bb72d8eb1",
+  "candidates": 1374,
+  "rejected": {},
+  "replacements": 730,
+  "replacement_patients": 544,
+  "replacements_by_negative_kind": {
+    "No Finding": 525,
+    "otros hallazgos": 205
+  },
+  "splits": {
+    "train": {
+      "images": 22594,
+      "patients": 13914,
+      "class_0": 18486,
+      "class_1": 4108,
+      "image_fraction": 0.7845956175990555
+    },
+    "val": {
+      "images": 1813,
+      "patients": 1181,
+      "class_0": 1088,
+      "class_1": 725,
+      "image_fraction": 0.06295794700836893
+    },
+    "test": {
+      "images": 4390,
+      "patients": 1686,
+      "class_0": 2634,
+      "class_1": 1756,
+      "image_fraction": 0.1524464353925756
+    }
+  }
+}

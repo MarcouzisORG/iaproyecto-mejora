@@ -12,7 +12,7 @@ Probé **EfficientNet-B0** para detectar derrame pleural (Effusion) en radiograf
 | **D** | EfficientNet-B0 | Mismas imágenes y receta de B, con los pesos de ImageNet de EfficientNet-B0 |
 | **E** | EfficientNet-B0 | Receta de D con 730 reemplazos de imágenes negativas |
 
-En E, cada reemplazo conserva el paciente y el grupo de hallazgos («sin hallazgos» u «otros hallazgos»). Una placa con menos de 10 estudios previos se reemplaza por otra placa PA sin derrame, con 10 o más estudios previos. Se auditaron los píxeles para evitar duplicados exactos. El cambio abarca **544 pacientes**, con 525 reemplazos sin hallazgos y 205 con otros hallazgos. El [manifiesto de reemplazos](models/modelo_e_efficientnet_b0/reemplazos_train.csv) identifica la imagen original, su sustituta y el hash de píxeles.
+En E, cada reemplazo conserva el paciente y el grupo de hallazgos («sin hallazgos» u «otros hallazgos»). Una placa con menos de 10 estudios previos se reemplaza por otra placa PA sin derrame, con 10 o más estudios previos. Se auditaron los píxeles para evitar duplicados exactos. El cambio abarca **544 pacientes**, con 525 reemplazos sin hallazgos y 205 con otros hallazgos. El manifiesto identifica la imagen original, su sustituta y el hash de píxeles. [Manifiesto de reemplazos](models/modelo_e_efficientnet_b0/reemplazos_train.csv) · [Auditoría de datos](models/modelo_e_efficientnet_b0/auditoria_datos.json)
 
 D y E usan **22.594 imágenes distintas de entrenamiento**, 30.810 ejemplos por época al repetir las positivas, resolución **224 × 224**, semilla **42** y la misma normalización. Comparten **1.813 radiografías de validación** y **4.390 de test**, idénticas byte por byte. El test es la submuestra PA del listado oficial del NIH que usó B, con un 40 % de positivas. En cada corrida se eligió la época por AUC y el umbral por F1 en validación.
 
@@ -70,6 +70,10 @@ $e = 'data/processed/nih_effusion_pa_modelo_e_v1'
 
 & $pythonCuda -m rx_torax.training.train --config configs/modelo_b_efficientnet_b0.json --salida work/reentrenado/modelo_d
 & $pythonCuda -m rx_torax.training.train --config configs/modelo_e_efficientnet_b0.json --salida work/reentrenado/modelo_e
+
+& $pythonCuda -m rx_torax.evaluation.evaluate --modelo work/reentrenado/modelo_d --conjunto val --dispositivo cuda
+& $pythonCuda -m rx_torax.evaluation.evaluate --modelo work/reentrenado/modelo_e --conjunto val --dispositivo cuda
+& $pythonCuda -m rx_torax.evaluation.evaluate --modelo work/reentrenado/modelo_d --conjunto test --dispositivo cuda
 ~~~
 
 La reconstrucción verifica las imágenes y sus arrays. Los pesos publicados permiten volver a usar los modelos de esta entrega. La semilla y el entorno permiten repetir la receta de entrenamiento. Los pesos de una corrida nueva pueden variar según el hardware y las bibliotecas.

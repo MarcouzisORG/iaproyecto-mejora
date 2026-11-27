@@ -30,6 +30,7 @@ venv/
 !/models/modelo_[de]_efficientnet_b0/modelo.pt
 !/models/modelo_[de]_efficientnet_b0/predicciones_val.csv
 !/models/modelo_e_efficientnet_b0/reemplazos_train.csv
+!/models/modelo_e_efficientnet_b0/auditoria_datos.json
 !/models/modelo_[de]_efficientnet_b0/evaluacion_*/resultados.png
 !/models/modelo_[de]_efficientnet_b0/evaluacion_*/ejemplos.png
 !/models/comparacion_*_b_[de]/comparacion_*.png
