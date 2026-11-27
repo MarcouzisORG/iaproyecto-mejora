@@ -23,6 +23,7 @@ from rx_torax.preprocessing.images import transform
 CONFIGS = Path(__file__).resolve().parents[1] / 'configs'
 MANIFESTS = CONFIGS / 'nih_effusion_pa_modelo_b_v1_manifiestos.zip'
 CHECKSUMS = CONFIGS / 'nih_effusion_pa_modelo_b_v1.sha256'
+ROUNDING = CONFIGS / 'nih_effusion_pa_modelo_b_v1_redondeo.npz'
 
 
 def fill_arrays(nih, destination, rows, size):
@@ -68,6 +69,31 @@ def fill_arrays(nih, destination, rows, size):
             array.flush()
 
 
+def verify_arrays(directory):
+    """Repite el redondeo original de Pillow en los píxeles donde varía entre plataformas."""
+    expected = read_manifest(CHECKSUMS)
+    with np.load(ROUNDING, allow_pickle=False) as reference:
+        for split in NAMES:
+            image_file = directory / f'X_{split}.npy'
+            if sha256(image_file) != expected[image_file.name]:
+                array = np.lib.format.open_memmap(image_file, mode='r+')
+                try:
+                    indices, values = reference[f'{split}_indices'], reference[f'{split}_values']
+                    pixels = array.reshape(-1)
+                    if np.any(np.abs(pixels[indices] - values) > 1e-6):
+                        raise ValueError(f'{image_file.name}: diferencia superior a la tolerancia de redondeo')
+                    pixels[indices] = values
+                    array.flush()
+                    del pixels
+                finally:
+                    array._mmap.close()
+                if sha256(image_file) != expected[image_file.name]:
+                    raise ValueError(f'{image_file.name} difiere del array original')
+            labels_file = directory / f'y_{split}.npy'
+            if sha256(labels_file) != expected[labels_file.name]:
+                raise ValueError(f'{labels_file.name} difiere del array original')
+
+
 def prepare(nih, output):
     if output.exists():
         raise ValueError(f'La salida ya existe: {output}')
@@ -94,13 +120,8 @@ def prepare(nih, output):
         config.update(metadata=str(metadata), image_root=str(nih / 'images'), output=str(output))
         write_json(stage / 'config.json', config)
         fill_arrays(nih, stage, rows, size)
-        expected = read_manifest(CHECKSUMS)
         print('Verificando los seis arrays contra el SHA-256 original...', flush=True)
-        for split in NAMES:
-            for prefix in ('X', 'y'):
-                name = f'{prefix}_{split}.npy'
-                if sha256(stage / name) != expected[name]:
-                    raise ValueError(f'{name} difiere del array original')
+        verify_arrays(stage)
         stage.rename(output)
     print(f'Conjunto de D reconstruido: {output}', flush=True)
 
