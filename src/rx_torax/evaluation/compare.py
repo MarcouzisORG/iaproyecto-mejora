@@ -140,7 +140,8 @@ def compare(model_dirs, output, names=None, device='auto', split='val'):
     point = {first: summary(labels, s1, t1), second: summary(labels, s2, t2)}
     right1, right2 = (s1 >= t1) == (labels == 1), (s2 >= t2) == (labels == 1)
     report = {'created_at': datetime.now(timezone.utc).isoformat(), 'split': split, 'device': str(device),
-              'versions': versions(), 'models': dict(zip(names, map(str, model_dirs))), 'data': str(datas[0]),
+              'versions': versions(), 'models': {name: path.as_posix() for name, path in zip(names, model_dirs)},
+              'data': datas[0].as_posix(),
               'images': len(labels), 'patients': int(len(set(patients))), 'positives': int(labels.sum()),
               'metrics': {name: point[name] | binary_metrics(labels, *scored[name]) for name in names},
               'difference': f'{second} − {first}',

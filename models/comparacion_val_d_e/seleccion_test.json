@@ -1,0 +1,11 @@
+{
+  "candidate": "E",
+  "true_positives": 554,
+  "baseline_true_positives": 554,
+  "false_positives": 129,
+  "baseline_false_positives": 117,
+  "false_positives_10_plus": 27,
+  "baseline_false_positives_10_plus": 23,
+  "selected_for_test": false,
+  "exploratory_test_evaluation": true
+}

@@ -1,0 +1,110 @@
+{
+  "created_at": "2026-11-27T00:29:50.048168+00:00",
+  "split": "test",
+  "device": "None",
+  "versions": {
+    "torch": "2.14.1+cu126",
+    "torchvision": "0.29.1+cu126",
+    "numpy": "2.3.5"
+  },
+  "models": {
+    "B": "models/modelo_b_densenet121_v1",
+    "D": "models/modelo_d_efficientnet_b0"
+  },
+  "data": "data/processed/nih_effusion_pa_modelo_b_v1",
+  "images": 4390,
+  "patients": 1686,
+  "positives": 1756,
+  "metrics": {
+    "B": {
+      "auc": 0.8692388651643221,
+      "f1": 0.7435722411831627,
+      "recall": 0.9305239179954442,
+      "specificity": 0.6184510250569476,
+      "precision": 0.6191739295187572,
+      "threshold": 0.413917601108551,
+      "tp": 1634,
+      "fp": 1005,
+      "fn": 122,
+      "tn": 1629,
+      "accuracy": 0.7432801822323463
+    },
+    "D": {
+      "auc": 0.8682382822837158,
+      "f1": 0.7594173782019086,
+      "recall": 0.8610478359908884,
+      "specificity": 0.7289293849658315,
+      "precision": 0.6792452830188679,
+      "threshold": 0.528964638710022,
+      "tp": 1512,
+      "fp": 714,
+      "fn": 244,
+      "tn": 1920,
+      "accuracy": 0.7817767653758542
+    }
+  },
+  "difference": "D − B",
+  "differences": {
+    "auc_diferencia": -0.0010005828806063377,
+    "f1_diferencia": 0.015845137018745903,
+    "recall_diferencia": -0.0694760820045558,
+    "specificity_diferencia": 0.11047835990888388,
+    "precision_diferencia": 0.060071353500110725
+  },
+  "intervals_95": {
+    "auc_diferencia": [
+      -0.0063840003905316885,
+      0.004509426432809395
+    ],
+    "f1_diferencia": [
+      0.006801104412470183,
+      0.024937994672451568
+    ],
+    "recall_diferencia": [
+      -0.08422482348596834,
+      -0.055182747035936335
+    ],
+    "specificity_diferencia": [
+      0.09672140229139213,
+      0.1243783898994318
+    ],
+    "precision_diferencia": [
+      0.04980400103537002,
+      0.0708851771379828
+    ]
+  },
+  "probability_second_better": {
+    "auc_diferencia": 0.352,
+    "f1_diferencia": 0.9995,
+    "recall_diferencia": 0.0,
+    "specificity_diferencia": 1.0,
+    "precision_diferencia": 1.0
+  },
+  "bootstrap": {
+    "unit": "patient",
+    "rounds": 2000,
+    "seed": 42,
+    "valid_rounds": 2000
+  },
+  "disagreements": 471,
+  "only_first_right": 151,
+  "only_second_right": 320,
+  "training": {
+    "B": {
+      "best_epoch": 1,
+      "epochs_run": 5,
+      "train_seconds": 4724.805823333001,
+      "train_images": 22594,
+      "train_samples_per_epoch": 30810
+    },
+    "D": {
+      "best_epoch": 1,
+      "epochs_run": 5,
+      "train_seconds": 955.8162522999992,
+      "train_images": 22594,
+      "train_samples_per_epoch": 30810
+    }
+  },
+  "correlation": 0.9395651870370774,
+  "note": "Predicciones de la evaluación única de cada modelo; la diferencia es pareada sobre las mismas imágenes y pacientes."
+}

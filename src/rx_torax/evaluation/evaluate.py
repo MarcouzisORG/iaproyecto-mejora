@@ -235,7 +235,8 @@ def evaluate(model_dir, split='val', data=None, device='auto'):
     title = f'{model_dir.name} · {split} · {len(labels)} imágenes'
     save_figures(stage / 'resultados.png', labels, scores, threshold, title)
     save_examples(stage / 'ejemplos.png', images, labels, scores, threshold, [r['target_original'] for r in rows])
-    report = {'created_at': datetime.now(timezone.utc).isoformat(), 'model': str(model_dir), 'data': str(data),
+    report = {'created_at': datetime.now(timezone.utc).isoformat(),
+              'model': model_dir.as_posix(), 'data': data.as_posix(),
               'split': split, 'device': str(device), 'versions': versions(), 'target': artifact['target'],
               'images': len(labels), 'patients': int(len(set(patients))), 'positives': int(labels.sum()),
               'threshold': threshold, 'threshold_source': 'validación, guardado en modelo.pt',
