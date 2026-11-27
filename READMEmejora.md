@@ -54,7 +54,7 @@ La página usa el mismo cálculo de puntaje que `rx-predecir`.
 
 Descargá el [NIH ChestX-ray14](https://nihcc.app.box.com/v/ChestXray-NIHCC). Colocá Data_Entry_2017_v2020.csv, train_val_list.txt y test_list.txt juntos. En la subcarpeta images/ dejá los doce archivos images_001.tar.gz a images_012.tar.gz. El script de D usa los manifiestos publicados y coteja los seis arrays contra los SHA-256 originales. Aplica una referencia de redondeo para reproducir los valores de Pillow del entorno original al reconstruir en Windows. El de E comprueba los 730 reemplazos contra el listado publicado. Si ya tenés el conjunto preparado original de B, podés verificarlo con rx-verificar-datos data/processed/nih_effusion_pa_modelo_b_v1 y usarlo directamente como base de E. [Manifiestos de D](configs/nih_effusion_pa_modelo_b_v1_manifiestos.zip) · [Referencia de redondeo](configs/nih_effusion_pa_modelo_b_v1_redondeo.npz)
 
-Windows con Python 3.12 y GTX 1080. El entorno usa las mismas versiones de las corridas publicadas. [Compatibilidad de PyTorch con Pascal](https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432)
+**Compatibilidad con la GTX 1080.** D y E se entrenaron en Windows con Python 3.12, PyTorch `2.14.1+cu126` y torchvision `0.29.1+cu126`. Se usó esa versión anterior de PyTorch porque sus binarios para CUDA 12.6 son compatibles con la GTX 1080 (Pascal, capacidad de cómputo 6.1). A partir de PyTorch 2.15 se retiró esa distribución con CUDA 12.6, y los binarios oficiales de PyTorch 2.15 con CUDA 13 no admiten Pascal. [Aviso de PyTorch](https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432) · [GPUs CUDA de NVIDIA](https://developer.nvidia.com/cuda/gpus/legacy)
 
 ~~~powershell
 $envCuda = Join-Path $env:LOCALAPPDATA 'venvs\iaproyecto-cu126'
@@ -62,7 +62,7 @@ py -3.12 -m venv $envCuda
 $pythonCuda = Join-Path $envCuda 'Scripts\python.exe'
 & $pythonCuda -m pip install --index-url https://download.pytorch.org/whl/cu126 torch==2.14.1+cu126 torchvision==0.29.1+cu126
 & $pythonCuda -m pip install -e .
-& $pythonCuda -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+& $pythonCuda -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0)); assert torch.ones(1, device='cuda').item() == 1"
 
 $nih = 'data/raw/nih'
 $d = 'data/processed/nih_effusion_pa_modelo_b_v1'
