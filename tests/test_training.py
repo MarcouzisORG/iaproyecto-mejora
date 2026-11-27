@@ -5,12 +5,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
 
 from rx_torax.evaluation.metrics import best_threshold, binary_metrics, roc_auc, trivial_baselines
-from rx_torax.training.train import DEFAULTS, augment, load_config, repeat_positive_indices, train
+from rx_torax.training.train import DEFAULTS, augment, load_config, repeat_positive_indices, train, train_epoch
 
 
 class MetricsTests(unittest.TestCase):
@@ -97,6 +98,26 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual((report['train_images'], report['train_samples_per_epoch']), (16, 32))
         self.assertEqual(report['train_positive_fraction'], 0.75)
         self.assertEqual(report['val_images'], 8)
+
+    def test_efficientnet_fine_tunes_classifier_then_last_blocks(self):
+        active_blocks_by_epoch = []
+
+        def inspect_epoch(model, *args):
+            active_blocks = tuple(index for index, block in enumerate(model.features)
+                                  if any(parameter.requires_grad for parameter in block.parameters()))
+            active_blocks_by_epoch.append(active_blocks)
+            frozen_mean = model.features[0][1].running_mean.clone()
+            loss = train_epoch(model, *args)
+            self.assertEqual(tuple(index for index, block in enumerate(model.features) if block.training),
+                             active_blocks)
+            self.assertTrue(torch.equal(model.features[0][1].running_mean, frozen_mean))
+            self.assertTrue(model.classifier.training)
+            return loss
+
+        config = self.config('e') | {'architecture': 'efficientnet_b0', 'fine_tune_last_block': True}
+        with patch('rx_torax.training.train.train_epoch', new=inspect_epoch):
+            train(config)
+        self.assertEqual(active_blocks_by_epoch, [(), (7, 8)])
 
     def test_existing_output_is_refused(self):
         (self.root / 'a').mkdir()

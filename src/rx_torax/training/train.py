@@ -21,7 +21,7 @@ from rx_torax.training.model import build_model, to_input
 
 DEFAULTS = {'architecture': 'densenet121', 'pretrained': True, 'epochs': 15, 'patience': 4, 'batch_size': 32,
             'learning_rate': 1e-4, 'weight_decay': 1e-4, 'augmentation': True, 'repeat_positives': 1, 'seed': 42,
-            'device': 'auto'}
+            'device': 'auto', 'fine_tune_last_block': False}
 
 
 def load_config(path, output=None):
@@ -35,6 +35,10 @@ def load_config(path, output=None):
         raise ValueError(f"Configuración: faltan {sorted(required-given.keys())}; "
                          f"claves desconocidas {sorted(given.keys()-required-set(DEFAULTS))}")
     config = DEFAULTS | given
+    if not isinstance(config['fine_tune_last_block'], bool):
+        raise ValueError('fine_tune_last_block debe ser booleano')
+    if config['fine_tune_last_block'] and config['architecture'] != 'efficientnet_b0':
+        raise ValueError('El ajuste del último bloque está disponible para efficientnet_b0')
     for name in ['epochs', 'patience', 'batch_size', 'repeat_positives']:
         if not isinstance(config[name], int) or config[name] < 1:
             raise ValueError(f'{name} debe ser un entero positivo')
@@ -98,6 +102,10 @@ def predict_logits(model, images, indices, mean, std, batch_size, device):
 
 def train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator):
     model.train()
+    if config.get('fine_tune_last_block', False):
+        for block in model.features:
+            # Los bloques congelados conservan las estadísticas de BatchNorm.
+            block.train(any(parameter.requires_grad for parameter in block.parameters()))
     order = rng.permutation(indices)
     total = 0.0
     for start in range(0, len(order), config['batch_size']):
@@ -143,6 +151,9 @@ def train(config, limit=None):
     rng = np.random.default_rng(config['seed'])
     generator = torch.Generator().manual_seed(config['seed'])
     model = build_model(config['architecture'], config['pretrained']).to(device)
+    fine_tune_last_block = config.get('fine_tune_last_block', False)
+    if fine_tune_last_block:
+        model.features.requires_grad_(False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.3, patience=1)
     val_target = torch.from_numpy(val_labels[val_indices].astype(np.float32))
@@ -153,6 +164,9 @@ def train(config, limit=None):
     history, best_auc, best_epoch = [], -1.0, 0
     started = time.perf_counter()
     for epoch in range(1, config['epochs'] + 1):
+        if fine_tune_last_block and epoch == 2:
+            # Última etapa MBConv y proyección final de EfficientNet-B0.
+            model.features[-2:].requires_grad_(True)
         epoch_started = time.perf_counter()
         rate = optimizer.param_groups[0]['lr']
         train_loss = train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator)
