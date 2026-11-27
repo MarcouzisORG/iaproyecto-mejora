@@ -1,0 +1,15 @@
+{
+  "data": "data/processed/nih_effusion_pa_modelo_j_v1",
+  "output": "models/modelo_j_efficientnet_b0",
+  "architecture": "efficientnet_b0",
+  "pretrained": true,
+  "epochs": 15,
+  "patience": 4,
+  "batch_size": 32,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.0001,
+  "augmentation": true,
+  "repeat_positives": 3,
+  "seed": 42,
+  "device": "cuda"
+}
