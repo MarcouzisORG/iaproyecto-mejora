@@ -115,6 +115,28 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(report['train_positive_fraction'], 0.75)
         self.assertEqual(report['val_images'], 8)
 
+    def test_other_findings_weight_is_applied_only_to_matching_training_examples(self):
+        labels = np.load(self.data / 'y_train.npy')
+        findings = ['Effusion|Edema', 'Edema', 'Effusion', 'No Finding'] * 4
+        with (self.data / 'train.csv').open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['array_index', 'target', 'target_original'])
+            writer.writerows((index, label, findings[index]) for index, label in enumerate(labels))
+
+        original_loss = torch.nn.functional.binary_cross_entropy_with_logits
+        observed = []
+
+        def inspect_loss(logits, target, *, weight=None, reduction='mean'):
+            observed.append((weight.tolist() if weight is not None else None, reduction))
+            return original_loss(logits, target, weight=weight, reduction=reduction)
+
+        config = self.config('g') | {'batch_size': len(labels), 'epochs': 1, 'other_findings_negative_weight': 1.5}
+        with patch('torch.nn.functional.binary_cross_entropy_with_logits', new=inspect_loss):
+            train(config)
+        order = np.random.default_rng(config['seed']).permutation(len(labels))
+        expected = [1.5 if index % 4 == 1 else 1.0 for index in order]
+        self.assertEqual(observed, [(expected, 'sum'), (None, 'mean')])
+
     def test_efficientnet_fine_tunes_classifier_then_last_blocks(self):
         active_blocks_by_epoch = []
 

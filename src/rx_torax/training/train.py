@@ -21,7 +21,8 @@ from rx_torax.training.model import build_model, to_input
 
 DEFAULTS = {'architecture': 'densenet121', 'pretrained': True, 'epochs': 15, 'patience': 4, 'batch_size': 32,
             'learning_rate': 1e-4, 'weight_decay': 1e-4, 'augmentation': True, 'repeat_positives': 1, 'seed': 42,
-            'device': 'auto', 'fine_tune_last_block': False, 'selection_metric': 'auc'}
+            'device': 'auto', 'fine_tune_last_block': False, 'selection_metric': 'auc',
+            'other_findings_negative_weight': 1.0}
 
 
 def load_config(path, output=None):
@@ -35,6 +36,9 @@ def load_config(path, output=None):
         raise ValueError(f"Configuración: faltan {sorted(required-given.keys())}; "
                          f"claves desconocidas {sorted(given.keys()-required-set(DEFAULTS))}")
     config = DEFAULTS | given
+    weight = config['other_findings_negative_weight']
+    if type(weight) not in (int, float) or weight < 1 or not math.isfinite(weight):
+        raise ValueError('other_findings_negative_weight debe ser un número finito mayor o igual a 1')
     if config['selection_metric'] not in ('auc', 'f1'):
         raise ValueError('selection_metric debe ser auc o f1')
     if not isinstance(config['fine_tune_last_block'], bool):
@@ -71,6 +75,20 @@ def repeat_positive_indices(indices, labels, repeat):
     return np.concatenate([indices, np.repeat(indices[labels[indices] == 1], repeat - 1)])
 
 
+def other_findings_weights(path, labels, weight):
+    """Identifica las negativas con otros hallazgos usando solo la metadata de train."""
+    with path.open(newline='', encoding='utf-8-sig') as stream:
+        reader = csv.DictReader(stream)
+        if not {'array_index', 'target', 'target_original'} <= set(reader.fieldnames or []):
+            raise ValueError(f'{path}: faltan columnas para identificar las negativas con otros hallazgos')
+        rows = list(reader)
+    if [int(row['array_index']) for row in rows] != list(range(len(labels))) or \
+            [int(row['target']) for row in rows] != labels.tolist():
+        raise ValueError(f'{path}: las filas no coinciden con y_train.npy')
+    findings = np.array([row['target_original'] for row in rows])
+    return np.where((labels == 0) & (findings != 'No Finding'), weight, 1.0).astype(np.float32)
+
+
 def augment(batch, generator):
     """Rotación, escala y desplazamiento leves por imagen, sin espejar: el tórax no es simétrico."""
     count = len(batch)
@@ -102,7 +120,8 @@ def predict_logits(model, images, indices, mean, std, batch_size, device):
     return torch.cat(logits)
 
 
-def train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator):
+def train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator,
+                *, sample_weights=None):
     model.train()
     if config.get('fine_tune_last_block', False):
         for block in model.features:
@@ -117,7 +136,12 @@ def train_epoch(model, images, labels, indices, mean, std, optimizer, config, de
             batch = augment(batch, generator)
         target = torch.from_numpy(labels[chosen].astype(np.float32)).to(device)
         optimizer.zero_grad()
-        loss = F.binary_cross_entropy_with_logits(model(to_input(batch, mean, std)).squeeze(1), target)
+        logits = model(to_input(batch, mean, std)).squeeze(1)
+        if sample_weights is None:
+            loss = F.binary_cross_entropy_with_logits(logits, target)
+        else:
+            weights = torch.from_numpy(sample_weights[chosen]).to(device)
+            loss = F.binary_cross_entropy_with_logits(logits, target, weight=weights, reduction='sum') / weights.sum()
         loss.backward()
         optimizer.step()
         total += loss.item() * len(chosen)
@@ -147,6 +171,10 @@ def train(config, limit=None):
     mean, std = preprocessing['train_mean'], preprocessing['train_std']
     images, labels, unique_indices = load_split(data, 'train', limit)
     indices = repeat_positive_indices(unique_indices, labels, config['repeat_positives'])
+    weight = config.get('other_findings_negative_weight', DEFAULTS['other_findings_negative_weight'])
+    epoch_options = {}
+    if weight != 1:
+        epoch_options['sample_weights'] = other_findings_weights(data / 'train.csv', labels, weight)
     val_images, val_labels, val_indices = load_split(data, 'val', limit)
     device = pick_device(config['device'])
     torch.manual_seed(config['seed'])
@@ -173,7 +201,8 @@ def train(config, limit=None):
             model.features[-2:].requires_grad_(True)
         epoch_started = time.perf_counter()
         rate = optimizer.param_groups[0]['lr']
-        train_loss = train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator)
+        train_loss = train_epoch(model, images, labels, indices, mean, std, optimizer, config, device, rng, generator,
+                                 **epoch_options)
         logits = predict_logits(model, val_images, val_indices, mean, std, config['batch_size'] * 2, device)
         val_loss = F.binary_cross_entropy_with_logits(logits, val_target).item()
         val_auc = roc_auc(labels_val, logits.numpy())
